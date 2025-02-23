@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure logging (stores logs in a file and prints to console)
-LOG_FILE = "api_process_long.log"
+LOG_FILE = "api_process_1M.log"
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -28,13 +28,13 @@ SUBJECT = os.getenv("SUBJECT")
 SECRET = os.getenv("SECRET")
 START_DATE = "2025-01-01T00:00:00Z"
 END_DATE = "2025-01-30T00:00:00Z"
-OUTPUT_FILE = "booking_data_long.json"
+OUTPUT_FILE = "booking_data_1M.json"
 
 # SQL Server Connection Details
-server = 'YOUR_SERVER'
-database = 'YOUR_DATABASE'
-username = 'YOUR_USERNAME'
-password = 'YOUR_PASSWORD'
+server = 'PROMETHEUS'
+database = 'MCIS_BOOKING_TEST'
+username = 'mcis\Priyanshu.Shah'
+password = '$u5ZK%Ecvi'
 driver = '{ODBC Driver 17 for SQL Server}'
 
 #DB Mapping
