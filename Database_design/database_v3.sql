@@ -141,7 +141,7 @@ CREATE TABLE [Bookings] (
   [verified_date] DATETIME,
   [vos] varchar(255),
   [vos_required] bit,
-  [extra_details] json,
+  [extra_details] NVARCHAR(MAX),
   [actual_location_id] int,
   [billing_customer_id] int,
   [billing_location_id] int,
