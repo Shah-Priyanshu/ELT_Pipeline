@@ -2,17 +2,17 @@ CREATE TABLE [Bookings] (
   [booking_id] int PRIMARY KEY,
   [uri] varchar(255) NOT NULL,
   [version_value] int,
-  [access_code] varchar(50),
-  [accounting_reference] varchar(50),
+  [access_code] varchar(255),
+  [accounting_reference] varchar(255),
   [actual_duration_hrs] float,
   [actual_duration_mins] float,
   [actual_start_date] DATETIME,
   [actual_end_date] DATETIME,
   [actual_location_display] varchar(255),
-  [assigned_by] varchar(100),
-  [assigned_by_username] varchar(100),
+  [assigned_by] varchar(255),
+  [assigned_by_username] varchar(255),
   [assignment_date] DATETIME,
-  [auto_offer_batch_freq] varchar(50),
+  [auto_offer_batch_freq] varchar(255),
   [auto_verify_duration] bit,
   [auto_verify_incidentals] bit,
   [average_rating] float,
@@ -30,25 +30,25 @@ CREATE TABLE [Bookings] (
   [consumer_count_enabled] bit,
   [contact_arrival_date] DATETIME,
   [contact_late_mins] int,
-  [contact_rate_plan] varchar(50),
+  [contact_rate_plan] varchar(255),
   [contact_special_instructions] text,
-  [created_by] varchar(100),
+  [created_by] varchar(255),
   [created_date] DATETIME,
-  [currency_code] varchar(10),
-  [currency_symbol] varchar(10),
+  [currency_code] varchar(255),
+  [currency_symbol] varchar(255),
   [custom_consumer] text,
   [custom_requestor] text,
-  [customer_business_unit] varchar(100),
+  [customer_business_unit] varchar(255),
   [customer_duration_override_hrs] float,
   [customer_notes] text,
-  [customer_rate_plan] varchar(50),
-  [customer_rate_plan_assoc] varchar(50),
-  [customer_rate_plan_override] varchar(50),
-  [customer_rate_zone_override] varchar(50),
+  [customer_rate_plan] varchar(255),
+  [customer_rate_plan_assoc] varchar(255),
+  [customer_rate_plan_override] varchar(255),
+  [customer_rate_zone_override] varchar(255),
   [customer_special_instructions] text,
   [disclaimer_accepted] bit,
   [disclaimer_accepted_date] DATETIME,
-  [disclaimer_accepted_initials] varchar(10),
+  [disclaimer_accepted_initials] varchar(255),
   [duration_override_hrs] float,
   [esignature_grace_period] int,
   [esignature_required] bit,
@@ -66,9 +66,9 @@ CREATE TABLE [Bookings] (
   [first_offer_date] DATETIME,
   [first_open_date] DATETIME,
   [flag_for_finance] bit,
-  [gender_requirement] varchar(50),
-  [general_customer_account_manager] varchar(100),
-  [general_customer_business_unit] varchar(100),
+  [gender_requirement] varchar(255),
+  [general_customer_account_manager] varchar(255),
+  [general_customer_business_unit] varchar(255),
   [incidentals] varchar(255),
   [integration] text,
   [interpreter_notes] text,
@@ -81,34 +81,34 @@ CREATE TABLE [Bookings] (
   [is_verified] bit,
   [job_complete_email_sent] bit,
   [job_offers] varchar(255),
-  [language_code] varchar(10),
-  [last_modified_by] varchar(100),
+  [language_code] varchar(255),
+  [last_modified_by] varchar(255),
   [last_modified_date] DATETIME,
   [last_synchronized_date] DATETIME,
   [location_note] varchar(255),
   [locked] bit,
   [mileage] float,
   [notes] text,
-  [notification_email] varchar(100),
+  [notification_email] varchar(255),
   [notify] bit,
   [num_jobs] int,
   [number_accepted_offers] int,
-  [number_for_telephone_trans] varchar(50),
+  [number_for_telephone_trans] varchar(255),
   [offer_date] DATETIME,
-  [offer_mode] varchar(50),
+  [offer_mode] varchar(255),
   [open_date] DATETIME,
-  [origin_of_request] varchar(50),
-  [overflow_job_location_uuid] varchar(50),
-  [override_booking_mode] varchar(50),
+  [origin_of_request] varchar(255),
+  [overflow_job_location_uuid] varchar(255),
+  [override_booking_mode] varchar(255),
   [override_requirements] bit,
-  [owner] varchar(100),
+  [owner] varchar(255),
   [place_of_appointment] varchar(255),
   [preferred_interpreter_declined] bit,
   [prevent_edit] bit,
-  [rate_plan_override] varchar(50),
-  [rate_zone_override] varchar(50),
+  [rate_plan_override] varchar(255),
+  [rate_zone_override] varchar(255),
   [reminder_email_sent] bit,
-  [requested_by] varchar(100),
+  [requested_by] varchar(255),
   [sessions] varchar(255),
   [shift_enabled] bit,
   [signature_hash] varchar(255),
@@ -116,12 +116,12 @@ CREATE TABLE [Bookings] (
   [signature_location] varchar(255),
   [signature_raw] text,
   [signature_width] float,
-  [signer] varchar(100),
-  [site_contact] varchar(100),
+  [signer] varchar(255),
+  [site_contact] varchar(255),
   [sla_reporting_enabled] bit,
   [start_editing] DATETIME,
-  [sub_location] varchar(100),
-  [sync_uuid] varchar(50),
+  [sub_location] varchar(255),
+  [sync_uuid] varchar(255),
   [team_id] int,
   [team_size] int,
   [time_interpreter_arrived_inbound] DATETIME,
@@ -130,18 +130,18 @@ CREATE TABLE [Bookings] (
   [time_interpreter_departed_outbound] DATETIME,
   [time_reconfirmed_customer] DATETIME,
   [time_tracking_enabled] bit,
-  [time_zone] varchar(50),
-  [time_zone_display_name] varchar(50),
+  [time_zone] varchar(255),
+  [time_zone_display_name] varchar(255),
   [unarchived_updates] bit,
   [unfulfilled_date] DATETIME,
   [unfulfilled_reason] text,
-  [user_editing] varchar(100),
-  [uuid] varchar(50) UNIQUE NOT NULL,
+  [user_editing] varchar(255),
+  [uuid] varchar(255) UNIQUE NOT NULL,
   [valid] bit,
   [verified_date] DATETIME,
   [vos] varchar(255),
   [vos_required] bit,
-  [extra_details] NVARCHAR(MAX),
+  [extra_details] NVARCHAR(255),
   [actual_location_id] int,
   [billing_customer_id] int,
   [billing_location_id] int,
@@ -172,13 +172,13 @@ CREATE TABLE [Locations] (
   [uri] varchar(255),
   [active] bit,
   [addr_entered] varchar(255),
-  [cost_center] varchar(100),
-  [cost_center_name] varchar(100),
+  [cost_center] varchar(255),
+  [cost_center_name] varchar(255),
   [description] varchar(255),
   [display_label] varchar(255),
   [lat] float,
   [lng] float,
-  [uuid] varchar(50) UNIQUE
+  [uuid] varchar(255) UNIQUE
 )
 GO
 
@@ -186,8 +186,8 @@ CREATE TABLE [BookingModes] (
   [booking_mode_id] int PRIMARY KEY,
   [uri] varchar(255),
   [description] varchar(255),
-  [name] varchar(100),
-  [name_key] varchar(50)
+  [name] varchar(255),
+  [name_key] varchar(255)
 )
 GO
 
@@ -196,7 +196,7 @@ CREATE TABLE [Clients] (
   [uri] varchar(255),
   [display_name] varchar(255),
   [name] varchar(255),
-  [uuid] varchar(50) UNIQUE
+  [uuid] varchar(255) UNIQUE
 )
 GO
 
@@ -205,7 +205,7 @@ CREATE TABLE [Companies] (
   [uri] varchar(255),
   [description] varchar(255),
   [name] varchar(255),
-  [uuid] varchar(50) UNIQUE
+  [uuid] varchar(255) UNIQUE
 )
 GO
 
@@ -215,9 +215,9 @@ CREATE TABLE [ContractTypes] (
   [version_value] int,
   [default_option] bit,
   [description] varchar(255),
-  [l10n_key] varchar(50),
-  [name] varchar(100),
-  [name_key] varchar(50)
+  [l10nKey] varchar(255),
+  [name] varchar(255),
+  [name_key] varchar(255)
 )
 GO
 
@@ -226,7 +226,7 @@ CREATE TABLE [Customers] (
   [uri] varchar(255),
   [display_name] varchar(255),
   [name] varchar(255),
-  [uuid] varchar(50) UNIQUE,
+  [uuid] varchar(255) UNIQUE,
   [contract_type_id] int
 )
 GO
@@ -236,13 +236,13 @@ CREATE TABLE [Languages] (
   [uri] varchar(255),
   [bpin_opi_enabled] bit,
   [bpin_vri_enabled] bit,
-  [description] varchar(100),
-  [display_name] varchar(100),
+  [description] varchar(255),
+  [display_name] varchar(255),
   [is_sign] bit,
-  [iso639_3_tag] varchar(10),
-  [mmis_code] varchar(50),
+  [iso639_3_tag] varchar(255),
+  [mmis_code] varchar(255),
   [opi_enabled] bit,
-  [subtag] varchar(10),
+  [subtag] varchar(255),
   [vri_enabled] bit
 )
 GO
@@ -251,8 +251,8 @@ CREATE TABLE [EmploymentCategories] (
   [employment_category_id] int PRIMARY KEY,
   [uri] varchar(255),
   [description] varchar(255),
-  [name] varchar(100),
-  [name_key] varchar(50)
+  [name] varchar(255),
+  [name_key] varchar(255)
 )
 GO
 
@@ -260,8 +260,8 @@ CREATE TABLE [InvoiceStatuses] (
   [invoice_status_id] int PRIMARY KEY,
   [uri] varchar(255),
   [description] varchar(255),
-  [name] varchar(100),
-  [name_key] varchar(50)
+  [name] varchar(255),
+  [name_key] varchar(255)
 )
 GO
 
@@ -269,8 +269,8 @@ CREATE TABLE [PaymentStatuses] (
   [payment_status_id] int PRIMARY KEY,
   [uri] varchar(255),
   [description] varchar(255),
-  [name] varchar(100),
-  [name_key] varchar(50)
+  [name] varchar(255),
+  [name_key] varchar(255)
 )
 GO
 
@@ -278,14 +278,14 @@ CREATE TABLE [OverflowTypes] (
   [overflow_type_id] int PRIMARY KEY,
   [uri] varchar(255),
   [description] varchar(255),
-  [name_key] varchar(50)
+  [name_key] varchar(255)
 )
 GO
 
 CREATE TABLE [SuperBookings] (
   [super_booking_id] int PRIMARY KEY,
   [uri] varchar(255),
-  [uuid] varchar(50)
+  [uuid] varchar(255)
 )
 GO
 
@@ -293,8 +293,8 @@ CREATE TABLE [Status] (
   [status_id] int PRIMARY KEY,
   [uri] varchar(255),
   [description] varchar(255),
-  [name] varchar(100),
-  [name_key] varchar(50)
+  [name] varchar(255),
+  [name_key] varchar(255)
 )
 GO
 
@@ -303,15 +303,15 @@ CREATE TABLE [Requestors] (
   [uri] varchar(255),
   [display_label] varchar(255),
   [display_name] varchar(255),
-  [name] varchar(100),
-  [uuid] varchar(50) UNIQUE,
-  [email] varchar(100),
+  [name] varchar(255),
+  [uuid] varchar(255) UNIQUE,
+  [email] varchar(255),
   [enabled] bit,
-  [fax_number] varchar(50),
-  [first_name] varchar(100),
-  [last_name] varchar(100),
+  [fax_number] varchar(255),
+  [first_name] varchar(255),
+  [last_name] varchar(255),
   [password_last_change] DATETIME,
-  [username] varchar(100)
+  [username] varchar(255)
 )
 GO
 
@@ -322,19 +322,19 @@ CREATE TABLE [VisitStatuses] (
   [default_option] bit,
   [description] varchar(255),
   [in_order] int,
-  [l10n_key] varchar(50),
+  [l255n_key] varchar(255),
   [message] text,
-  [name] varchar(100),
-  [name_key] varchar(50)
+  [name] varchar(255),
+  [name_key] varchar(255)
 )
 GO
 
 CREATE TABLE [Visits] (
   [visit_id] int PRIMARY KEY,
   [uri] varchar(255),
-  [contact_rate_plan] varchar(100),
-  [customer_rate_plan] varchar(100),
-  [uuid] varchar(50),
+  [contact_rate_plan] NVARCHAR(MAX),
+  [customer_rate_plan] varchar(255),
+  [uuid] varchar(255),
   [visit_status_id] int
 )
 GO
@@ -343,12 +343,12 @@ CREATE TABLE [Interpreters] (
   [interpreter_id] int PRIMARY KEY,
   [uri] varchar(255),
   [display_name] varchar(255),
-  [name] varchar(100),
-  [email] varchar(100),
+  [name] varchar(255),
+  [email] varchar(255),
   [phone] varchar(20),
-  [payment_method] varchar(50),
-  [time_zone] varchar(50),
-  [uuid] varchar(50) UNIQUE
+  [payment_method] varchar(255),
+  [time_zone] varchar(255),
+  [uuid] varchar(255) UNIQUE
 )
 GO
 
@@ -365,9 +365,9 @@ CREATE TABLE [Refs] (
   [dependent] text,
   [dependent_id] int,
   [description] text,
-  [name] varchar(100),
-  [ref_value] varchar(50),
-  [reference_value] varchar(100),
+  [name] varchar(255),
+  [ref_value] varchar(255),
+  [reference_value] varchar(255),
   [reference_value_url] varchar(255),
   [super_booking_id] int
 )
@@ -389,7 +389,7 @@ GO
 
 CREATE TABLE [BookingInvalidFields] (
   [booking_id] int,
-  [field_name] varchar(100),
+  [field_name] varchar(255),
   PRIMARY KEY ([booking_id], [field_name])
 )
 GO
