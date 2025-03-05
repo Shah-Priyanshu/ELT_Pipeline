@@ -387,6 +387,13 @@ CREATE TABLE [BookingOverriddenRequirements] (
 )
 GO
 
+CREATE TABLE [BookingExtraDetails] (
+  [booking_id] int,
+  [extra_details] varchar(255),
+  PRIMARY KEY ([booking_id], [extra_details])
+)
+GO
+
 CREATE TABLE [BookingInvalidFields] (
   [booking_id] int,
   [field_name] varchar(255),

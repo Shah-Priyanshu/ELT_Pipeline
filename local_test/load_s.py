@@ -1,16 +1,18 @@
-import requests
-import json
 import os
+import json
 import logging
 import time
+import asyncio
+import aiohttp
 import pyodbc
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging (stores logs in a file and prints to console)
-LOG_FILE = "api_process_1M_9.log"
+# Configure logging
+LOG_FILE = "api_process_1M_enhanced.log"
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -20,31 +22,138 @@ logging.basicConfig(
     ]
 )
 
-# Configuration
+# Updated connection info for local testing
+server = 'Pri-Yoga'
+database = 'MCIS_BOOKING_TEST1'
+driver = '{ODBC Driver 17 for SQL Server}'
+
+def get_db_connection():
+    try:
+        conn = pyodbc.connect(
+            f'DRIVER={driver};SERVER={server};DATABASE={database};Trusted_Connection=yes;TrustServerCertificate=yes;'
+        )
+        logging.info("Connected to SQL Server successfully.")
+        return conn
+    except Exception as e:
+        logging.error(f"Database connection failed: {e}")
+        return None
+
 AUTH_URL = os.getenv("AUTH_URL")
 DATA_API_URL = os.getenv("DATA_API_URL")
 SUBJECT = os.getenv("SUBJECT")
 SECRET = os.getenv("SECRET")
 START_DATE = "2025-01-01T00:00:00Z"
 END_DATE = "2025-01-30T00:00:00Z"
-OUTPUT_FILE = "booking_data_1M.json"
 
-# SQL Server Connection Details
-# server = 'PROMETHEUS'
-# database = 'MCIS_BOOKING_TEST'
-# username = 'mcis\\Priyanshu.Shah'
-# password = '$u5ZK%Ecvi'
-# driver = '{ODBC Driver 17 for SQL Server}'
+OUTPUT_FILE = "booking_data_flat.json"
 
-#local
-server = 'Pri-Yoga'
-database = 'MCIS_BOOKING_TEST9'
-# username = 'mcis\Priyanshu.Shah'
-# password = '$u5ZK%Ecvi'
-driver = '{ODBC Driver 17 for SQL Server}'
+# Global cache for async API responses
+api_cache = {}
 
+def authenticate(auth_url, subject, secret):
+    logging.info("Authenticating...")
+    auth_payload = {"subject": subject, "secret": secret}
+    try:
+        response = requests.post(auth_url, json=auth_payload)
+        response.raise_for_status()
+        auth_data = response.json()
+        logging.info(f"Authentication successful. Token: {auth_data.get('accessToken')}")
+        return auth_data.get("accessToken")
+    except requests.RequestException as e:
+        logging.error(f"Authentication failed: {e}")
+        raise
 
-# Mapping dictionary for tables (for tables with straightforward mappings)
+async def fetch_data_async(session, url, headers, payload=None):
+    if url in api_cache:
+        logging.debug(f"Cache hit for URL: {url}")
+        return api_cache[url]
+    try:
+        if payload:
+            async with session.post(url, json=payload, headers=headers) as resp:
+                data = await resp.json()
+        else:
+            async with session.get(url, headers=headers) as resp:
+                data = await resp.json()
+        api_cache[url] = data
+        logging.debug(f"Fetched async data from {url}")
+        return data
+    except Exception as e:
+        logging.error(f"Async error fetching {url}: {e}")
+        return None
+
+def flatten_json(y, parent_key='', sep='.'):
+    """Recursively flattens nested JSON into a flat dictionary."""
+    items = {}
+    if isinstance(y, dict):
+        for k, v in y.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            items.update(flatten_json(v, new_key, sep=sep))
+    elif isinstance(y, list):
+        for i, v in enumerate(y):
+            new_key = f"{parent_key}{sep}{i}"
+            items.update(flatten_json(v, new_key, sep=sep))
+    else:
+        items[parent_key] = y
+    return items
+
+async def enrich_record(record, headers):
+    """Fetch additional details asynchronously for a record based on keys ending with 'uri'."""
+    uris = {key: record[key] for key in record if key.endswith("uri") and isinstance(record[key], str) and record[key].startswith("http")}
+    enriched = {}
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for key, url in uris.items():
+            tasks.append(fetch_data_async(session, url, headers))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for (key, url), res in zip(uris.items(), results):
+            if isinstance(res, Exception):
+                logging.error(f"Error fetching {url}: {res}")
+            else:
+                enriched[key] = res
+    return enriched
+
+async def fetch_booking_data_paged(access_token):
+    """Fetch booking data using pagination by following the 'next' URL."""
+    headers = {"Authorization": f"Bearer {access_token}"}
+    all_bookings = []
+    next_url = DATA_API_URL
+    payload = {"expectedStartDateGTE": START_DATE, "expectedStartDateLT": END_DATE}
+    while next_url:
+        logging.info(f"Fetching page: {next_url}")
+        response = requests.get(next_url, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        items = data.get("items", [])
+        all_bookings.extend(items)
+        next_url = data.get("next")  # Expect full URL or None
+        time.sleep(1)  # avoid hammering API
+    logging.info(f"Fetched total {len(all_bookings)} booking items with pagination.")
+    return all_bookings
+
+async def process_bookings_async(access_token):
+    logging.info("Fetching booking data with pagination...")
+    bookings = await fetch_booking_data_paged(access_token)
+    logging.info(f"Fetched {len(bookings)} booking items.")
+    flat_bookings = []
+    for record in bookings:
+        flat_record = flatten_json(record)
+        enriched = await enrich_record(record, {"Authorization": f"Bearer {access_token}"})
+        # Remove any nested extra details and store the enrichment separately
+        flat_record.pop("extra_details", None)
+        flat_record["_enriched"] = enriched
+        flat_bookings.append(flat_record)
+    return flat_bookings
+
+# Update TABLE_ORDER and TABLE_MAPPINGS to use singular names that match the DB design.
+TABLE_ORDER = [
+    "ContractTypes", "Customers", "Locations", "BookingModes", "Clients",
+    "Companies", "Languages", "EmploymentCategories", "InvoiceStatuses",
+    "PaymentStatuses", "OverflowTypes", "SuperBookings", "Status", "Requestors",
+    "VisitStatuses", "Visits", "Interpreters", "Refs", "BookingRefs",
+    "BookingOverriddenRequirements", "BookingInvalidFields", "BookingRequirements",
+    "Bookings"
+]
+
 TABLE_MAPPINGS = {
     "ContractTypes": {
         "contract_type_id": "customer.contractType.id",
@@ -64,6 +173,8 @@ TABLE_MAPPINGS = {
         "uuid": "customer.uuid",
         "contract_type_id": "customer.contractType.id"
     },
+    # For locations, we extract from several potential prefixes
+    "Locations": {},  # handled separately by extract_locations()
     "BookingModes": {
         "booking_mode_id": "bookingMode.id",
         "uri": "bookingMode.uri",
@@ -93,7 +204,7 @@ TABLE_MAPPINGS = {
         "description": "language.description",
         "display_name": "language.displayName",
         "is_sign": "language.isSign",
-        "iso639_3_tag": "language.iso6393Tag",
+        "iso6393Tag": "language.iso6393Tag",
         "mmis_code": "language.mmisCode",
         "opi_enabled": "language.opiEnabled",
         "subtag": "language.subtag",
@@ -131,8 +242,8 @@ TABLE_MAPPINGS = {
         "uri": "superBooking.uri",
         "uuid": "superBooking.uuid"
     },
-    "Status": {
-        "status_id": "status.id",
+    "BookingStatuses": {
+        "booking_status_id": "status.id",
         "uri": "status.uri",
         "description": "status.description",
         "name": "status.name",
@@ -148,9 +259,9 @@ TABLE_MAPPINGS = {
         "email": "requestor.email",
         "enabled": "requestor.enabled",
         "fax_number": "requestor.faxNumber",
-        "first_name": "requestor.firstName",
-        "last_name": "requestor.lastName",
-        "password_last_change": "requestor.passwordLastChange",
+        "firstName": "requestor.firstName",
+        "lastName": "requestor.lastName",
+        "passwordLastChange": "requestor.passwordLastChange",
         "username": "requestor.username"
     },
     "VisitStatuses": {
@@ -168,7 +279,7 @@ TABLE_MAPPINGS = {
     "Visits": {
         "visit_id": "visit.id",
         "uri": "visit.uri",
-        "contact_rate_plan": "visit.contactRatePlan",  # Will be truncated if needed
+        "contact_rate_plan": "visit.contactRatePlan",
         "customer_rate_plan": "visit.customerRatePlan",
         "uuid": "visit.uuid",
         "visit_status_id": "visit.visitStatus.id"
@@ -183,6 +294,25 @@ TABLE_MAPPINGS = {
         "payment_method": "interpreter.paymentMethod",
         "time_zone": "interpreter.timeZone",
         "uuid": "interpreter.uuid"
+    },
+    "Refs": {
+        "ref_id": "refs.id",
+        "uri": "refs.uri",
+        "version_value": "refs.versionValue",
+        "approved": "refs.approved",
+        "auto_complete": "refs.autoComplete",
+        "company_id": "refs.company.id",
+        "config_desc": "refs.configDescription",
+        "consumer": "refs.consumer",
+        "customer_id": "refs.customer.id",
+        "dependent": "refs.dependent",
+        "dependent_id": "refs.dependentId",
+        "description": "refs.description",
+        "name": "refs.name",
+        "ref_value": "refs.refValue",
+        "reference_value": "refs.referenceValue",
+        "reference_value_url": "refs.referenceValueUrl",
+        "super_booking_id": "refs.superBooking.id"
     },
     "BookingRefs": {
         "booking_id": "bookingRef.booking.id",
@@ -230,9 +360,7 @@ TABLE_MAPPINGS = {
         "consumer": "consumer",
         "consumer_count": "consumerCount",
         "consumer_count_enabled": "consumerCountEnabled",
-        "contact_arrival_date": "contactArrivalDate",
-        "contact_late_mins": "contactLateMins",
-        "contact_rate_plan": "contact_rate_plan",  # Processed specially in get_nested_value
+        "contact_rate_plan": "contact_rate_plan",
         "contact_special_instructions": "contactSpecialInstructions",
         "created_by": "createdBy",
         "created_date": "createdDate",
@@ -322,7 +450,7 @@ TABLE_MAPPINGS = {
         "site_contact": "siteContact",
         "sla_reporting_enabled": "slaReportingEnabled",
         "start_editing": "startEditing",
-        "sub_location": "sub_location",  # Slight rename if needed
+        "sub_location": "subLocation",
         "sync_uuid": "syncUuid",
         "team_id": "team.id",
         "team_size": "teamSize",
@@ -342,304 +470,46 @@ TABLE_MAPPINGS = {
         "valid": "valid",
         "verified_date": "verifiedDate",
         "vos": "vos",
-        "vos_required": "vosRequired",
-        "extra_details": "extraDetails",
-        "actual_location_id": "actualLocation.id",
-        "billing_customer_id": "billingCustomer.id",
-        "billing_location_id": "billingLocation.id",
-        "booking_mode_id": "bookingMode.id",
-        "client_id": "client.id",
-        "company_id": "company.id",
-        "customer_id_fk": "customer.id",
-        "default_language_id": "defaultLanguage.id",
-        "employment_category_id": "employmentCategory.id",
-        "invoice_status_id": "invoiceStatus.id",
-        "interpreter_id": "interpreter.id",
-        "language_id": "language.id",
-        "local_booking_mode_id": "localBookingMode.id",
-        "location_id_fk": "location.id",
-        "overflow_type_id": "overflowType.id",
-        "payment_status_id": "paymentStatus.id",
-        "preferred_interpreter_id": "preferredInterpreter.id",
-        "primary_ref_id": "primaryRef.id",
-        "status_id": "status.id",
-        "super_booking_id": "superBooking.id",
-        "requestor_id": "requestor.id",
-        "visit_id": "visit.id"
-    }
+        "vos_required": "vosRequired"
+    },
+    # BookingExtraDetails is handled separately.
 }
 
-# Define explicit insertion order to satisfy FK constraints.
-TABLE_ORDER = [
-    "ContractTypes", "Customers", "Locations", "BookingModes", "Clients",
-    "Companies", "Languages", "EmploymentCategories", "InvoiceStatuses",
-    "PaymentStatuses", "OverflowTypes", "SuperBookings", "Status", "Requestors",
-    "VisitStatuses", "Visits", "Interpreters", "Refs", "BookingRefs",
-    "BookingOverriddenRequirements", "BookingInvalidFields", "BookingRequirements",
-    "Bookings"
-]
-
-# Track already fetched URLs
-fetched_urls = set()
-
-def authenticate(auth_url, subject, secret):
-    logging.info("Authenticating...")
-    auth_payload = {"subject": subject, "secret": secret}
-    try:
-        response = requests.post(auth_url, json=auth_payload)
-        response.raise_for_status()
-        auth_data = response.json()
-        logging.info(f"Authentication successful. Token: {auth_data.get('accessToken')}")
-        return auth_data.get("accessToken")
-    except requests.RequestException as e:
-        logging.error(f"Authentication failed: {e}")
-        raise
-
-def fetch_data(url, headers, payload=None):
-    global fetched_urls
-    if url in fetched_urls:
-        logging.debug(f"Skipping already fetched URL: {url}")
-        return None
-    try:
-        response = requests.get(url, headers=headers, json=payload) if payload else requests.get(url, headers=headers)
-        if response.status_code == 200:
-            fetched_urls.add(url)
-            logging.debug(f"Fetched data from {url}")
-            return response.json()
-        else:
-            logging.error(f"Failed to fetch {url}: {response.status_code} - {response.text}")
-            return None
-    except requests.RequestException as e:
-        logging.error(f"Error fetching {url}: {e}")
-        return None
-
-def fetch_booking_data(api_url, access_token, start_date, end_date):
-    logging.info("Fetching booking data...")
-    headers = {"Authorization": f"Bearer {access_token}"}
-    all_bookings = []
-    page = 1
-    while api_url:
-        logging.info(f"Fetching page {page} from {api_url}...")
-        data_payload = {"expectedStartDateGTE": start_date, "expectedStartDateLT": end_date}
-        data = fetch_data(api_url, headers, payload=data_payload)
-        if data:
-            items = data.get("items", [])
-            logging.debug(f"Fetched {len(items)} bookings from page {page}")
-            all_bookings.extend(items)
-            api_url = data.get("next", None)
-        else:
-            logging.error(f"Failed to fetch data from {api_url}, stopping pagination.")
-            break
-        page += 1
-        time.sleep(1)
-    logging.info(f"Total bookings fetched: {len(all_bookings)}")
-    return all_bookings
-
-def extract_uris(item):
-    extracted_uris = {}
-    for key, value in item.items():
-        if isinstance(value, dict) and "uri" in value:
-            extracted_uris[key] = value["uri"]
-            logging.debug(f"Extracted URI for {key}: {value['uri']}")
-    return extracted_uris
-
-def fetch_additional_details(item, access_token):
-    booking_id = item["id"]
-    logging.info(f"Fetching additional details for booking ID {booking_id}...")
-    extracted_uris = extract_uris(item)
-    additional_details = {}
-    headers = {"Authorization": f"Bearer {access_token}"}
-    for key, url in extracted_uris.items():
-        if url in fetched_urls:
-            logging.debug(f"Skipping already fetched inner API: {url}")
-            continue
-        logging.debug(f"Fetching additional detail from {url}")
-        extra_data = fetch_data(url, headers)
-        if extra_data:
-            additional_details[key] = extra_data
-            logging.debug(f"Fetched additional detail for {key}")
-        else:
-            logging.warning(f"No data returned for {key}")
-        time.sleep(0.5)
-    return additional_details
-
-def process_bookings(access_token):
-    bookings = fetch_booking_data(DATA_API_URL, access_token, START_DATE, END_DATE)
-    detailed_bookings = []
-    for item in bookings:
-        logging.info(f"Processing booking ID: {item['id']}")
-        item["extra_details"] = fetch_additional_details(item, access_token)
-        detailed_bookings.append(item)
-    return detailed_bookings
-
-def save_json_to_file(data, filename):
-    logging.info(f"Saving JSON data to {filename}...")
-    try:
-        with open(filename, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=4)
-        logging.info(f"Data saved successfully to {filename}")
-    except Exception as e:
-        logging.error(f"Error saving JSON to {filename}: {e}")
-
-def connect_to_db():
-    try:
-        conn = pyodbc.connect(f'DRIVER={driver};SERVER={server};DATABASE={database};Trusted_Connection=yes;TrustServerCertificate=yes;')
-        logging.info("Connected to SQL Server successfully.")
-        return conn
-    except Exception as e:
-        logging.error(f"Database connection failed: {e}")
-        return None
-
-def load_json(file_path):
-    try:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-        logging.info(f"Loaded JSON data from {file_path}")
-        return data if isinstance(data, list) else [data]
-    except Exception as e:
-        logging.error(f"Failed to load JSON: {e}")
-        return None
-
-def get_nested_value(data, key, default=""):
-    """Retrieve nested value using dotted key notation.
-       Returns the value if found, otherwise returns the default."""
-    for part in key.split('.'):
-        if isinstance(data, dict):
-            data = data.get(part, default)
-        else:
-            return default
-    if data is None:
-        return default
-    if isinstance(data, dict):
-        return json.dumps(data)
-    return data
-
-
-def extract_values(mapping, json_data):
-    extracted_data = []
-    for record in json_data:
+def extract_values(mapping, flat_data):
+    extracted = []
+    for record in flat_data:
         row = {}
-        for sql_col, json_key in mapping.items():
-            value = get_nested_value(record, json_key, default="")
+        for col, key in mapping.items():
+            value = record.get(key, "")
             if value == "":
-                logging.debug(f"Missing value for column '{sql_col}' using key '{json_key}' in record id {record.get('id')}")
-            row[sql_col] = value
-        extracted_data.append(row)
-    logging.info(f"Extracted {len(extracted_data)} rows for mapping.")
-    return extracted_data
+                logging.debug(f"Missing value for column '{col}' using key '{key}' in record id {record.get('id', 'unknown')}")
+            row[col] = value
+        extracted.append(row)
+    logging.info(f"Extracted {len(extracted)} rows using mapping.")
+    return extracted
 
-
-def extract_locations(json_data):
-    """Extract both actual and billing locations and deduplicate by location_id."""
+def extract_locations(flat_data):
     loc_dict = {}
-    for record in json_data:
-        actual = record.get("actualLocation") or record.get("location")
-        if actual and actual.get("id") is not None:
-            lid = actual.get("id")
-            loc_dict[lid] = {
-                "location_id": lid,
-                "uri": actual.get("uri"),
-                "active": actual.get("active"),
-                "addr_entered": actual.get("addrEntered") or actual.get("addressEntered"),
-                "cost_center": actual.get("costCenter"),
-                "cost_center_name": actual.get("costCenterName"),
-                "description": actual.get("description"),
-                "display_label": actual.get("displayLabel"),
-                "lat": actual.get("lat") or actual.get("latitude"),
-                "lng": actual.get("lng") or actual.get("longitude"),
-                "uuid": actual.get("uuid")
-            }
-        billing = record.get("billingLocation")
-        if billing and billing.get("id") is not None:
-            bid = billing.get("id")
-            loc_dict[bid] = {
-                "location_id": bid,
-                "uri": billing.get("uri"),
-                "active": billing.get("active"),
-                "addr_entered": billing.get("addrEntered") or billing.get("addressEntered"),
-                "cost_center": billing.get("costCenter"),
-                "cost_center_name": billing.get("costCenterName"),
-                "description": billing.get("description"),
-                "display_label": billing.get("displayLabel"),
-                "lat": billing.get("lat") or billing.get("latitude"),
-                "lng": billing.get("lng") or billing.get("longitude"),
-                "uuid": billing.get("uuid")
-            }
+    for record in flat_data:
+        for prefix in ["actualLocation", "billingLocation", "location"]:
+            loc_id = record.get(f"{prefix}.id")
+            if loc_id:
+                loc_dict[loc_id] = {
+                    "location_id": loc_id,
+                    "uri": record.get(f"{prefix}.uri", ""),
+                    "active": record.get(f"{prefix}.active", ""),
+                    "addr_entered": record.get(f"{prefix}.addrEntered", "") or record.get(f"{prefix}.addressEntered", ""),
+                    "cost_center": record.get(f"{prefix}.costCenter", ""),
+                    "cost_center_name": record.get(f"{prefix}.costCenterName", ""),
+                    "description": record.get(f"{prefix}.description", ""),
+                    "display_label": record.get(f"{prefix}.displayLabel", ""),
+                    "lat": record.get(f"{prefix}.lat", "") or record.get(f"{prefix}.latitude", ""),
+                    "lng": record.get(f"{prefix}.lng", "") or record.get(f"{prefix}.longitude", ""),
+                    "uuid": record.get(f"{prefix}.uuid", "")
+                }
     locs = list(loc_dict.values())
     logging.info(f"Extracted {len(locs)} unique location records.")
     return locs
-
-def extract_refs(json_data):
-    """Extract Refs from both the 'primaryRef' field and the 'refs' array.
-       Also check extra_details for primaryRef if missing at the top level."""
-    ref_dict = {}
-    for record in json_data:
-        # Check for primaryRef in the record or in extra_details
-        primary = record.get("primaryRef") or record.get("extra_details", {}).get("primaryRef")
-        if primary and primary.get("id") is not None:
-            rid = primary.get("id")
-            if rid not in ref_dict:
-                ref_dict[rid] = {
-                    "ref_id": rid,
-                    "uri": primary.get("uri"),
-                    "version_value": primary.get("versionValue"),
-                    "approved": primary.get("approved"),
-                    "auto_complete": json.dumps(primary.get("autoComplete")) if primary.get("autoComplete") else None,
-                    "company_id": primary.get("company", {}).get("id") if primary.get("company") else None,
-                    "config_desc": primary.get("configDescription"),
-                    "consumer": primary.get("consumer"),
-                    "customer_id": primary.get("customer", {}).get("id") if primary.get("customer") else None,
-                    "dependent": primary.get("dependent"),
-                    "dependent_id": primary.get("dependentId"),
-                    "description": primary.get("description"),
-                    "name": primary.get("name"),
-                    "ref_value": primary.get("ref"),
-                    "reference_value": primary.get("referenceValue"),
-                    "reference_value_url": primary.get("referenceValueUrl"),
-                    "super_booking_id": primary.get("superBooking", {}).get("id") if primary.get("superBooking") else None
-                }
-        # Process the refs array if present
-        refs = record.get("refs")
-        if isinstance(refs, list):
-            for item in refs:
-                rid = item.get("id")
-                if rid is not None and rid not in ref_dict:
-                    ref_dict[rid] = {
-                        "ref_id": rid,
-                        "uri": item.get("uri"),
-                        "version_value": item.get("versionValue"),
-                        "approved": item.get("approved"),
-                        "auto_complete": json.dumps(item.get("autoComplete")) if item.get("autoComplete") else None,
-                        "company_id": item.get("company", {}).get("id") if item.get("company") else None,
-                        "config_desc": item.get("configDescription"),
-                        "consumer": item.get("consumer"),
-                        "customer_id": item.get("customer", {}).get("id") if item.get("customer") else None,
-                        "dependent": item.get("dependent"),
-                        "dependent_id": item.get("dependentId"),
-                        "description": item.get("description"),
-                        "name": item.get("name"),
-                        "ref_value": item.get("ref"),
-                        "reference_value": item.get("referenceValue"),
-                        "reference_value_url": item.get("referenceValueUrl"),
-                        "super_booking_id": item.get("superBooking", {}).get("id") if item.get("superBooking") else None
-                    }
-    refs_list = list(ref_dict.values())
-    logging.info(f"Extracted {len(refs_list)} ref records.")
-    return refs_list
-
-def verify_refs(bookings, refs_data):
-    """For each booking, verify that its primaryRef.id is present in refs_data.
-       Log a warning and optionally add a fallback record if missing."""
-    extracted_ref_ids = {ref["ref_id"] for ref in refs_data if ref.get("ref_id") is not None}
-    missing = []
-    for record in bookings:
-        primary_id = get_nested_value(record, "primaryRef.id") or get_nested_value(record, "extra_details.primaryRef.id")
-        if primary_id and primary_id not in extracted_ref_ids:
-            missing.append(primary_id)
-    if missing:
-        logging.warning(f"Bookings reference {len(missing)} primaryRef IDs missing in Refs: {missing}")
-    else:
-        logging.info("All primaryRef IDs in bookings are present in Refs.")
 
 def bulk_insert(cursor, table_name, data):
     if not data:
@@ -661,61 +531,87 @@ def bulk_insert(cursor, table_name, data):
     try:
         cursor.executemany(merge_query, values)
         logging.info(f"Inserted/Updated {len(values)} records into {table_name} using batch MERGE.")
-    except Exception as batch_error:
-        logging.error(f"Batch insert error into {table_name}: {batch_error}. Attempting individual inserts...")
+    except Exception as e:
+        logging.error(f"Batch insert error into {table_name}: {e}. Attempting individual inserts...")
         success_count = 0
         for idx, row in enumerate(values):
             try:
                 cursor.execute(merge_query, row)
                 success_count += 1
-            except Exception as individual_error:
-                logging.error(f"Error inserting row {idx} into {table_name}: {row} - {individual_error}")
+            except Exception as ie:
+                logging.error(f"Error inserting row {idx} into {table_name}: {row} - {ie}")
         logging.info(f"Individually inserted/updated {success_count} records into {table_name}.")
 
-def process_and_insert_data(file_path):
-    conn = connect_to_db()
+def insert_extra_details(cursor, flat_bookings):
+    """Insert extra details into BookingExtraDetails table.
+       Expected columns: booking_id (FK) and extra_details (NVARCHAR(MAX))."""
+    details = []
+    for record in flat_bookings:
+        booking_id = record.get("id")
+        enriched = record.get("_enriched", {})
+        extra_json = json.dumps(enriched)
+        if booking_id:
+            details.append({"booking_id": booking_id, "extra_details": extra_json})
+    if not details:
+        logging.info("No extra details to insert.")
+        return
+    columns = "booking_id, extra_details"
+    placeholders = "?, ?"
+    insert_query = f"INSERT INTO BookingExtraDetails ({columns}) VALUES ({placeholders});"
+    values = [(d["booking_id"], d["extra_details"]) for d in details]
+    try:
+        cursor.executemany(insert_query, values)
+        logging.info(f"Inserted/Updated {len(values)} records into BookingExtraDetails.")
+    except Exception as e:
+        logging.error(f"Error inserting into BookingExtraDetails: {e}")
+
+def process_and_insert_data(flat_bookings):
+    conn = get_db_connection()
     if not conn:
         return
     cursor = conn.cursor()
-    bookings = load_json(file_path)
-    if not bookings:
-        return
-
-    # Process tables in the specified order.
     for table in TABLE_ORDER:
         try:
-            if table == "Locations":
-                data = extract_locations(bookings)
-            elif table == "Refs":
-                data = extract_refs(bookings)
-                # Verify that all bookings' primary references are captured.
-                verify_refs(bookings, data)
+            if table == "Location":
+                data = extract_locations(flat_bookings)
+            elif table == "BookingExtraDetails":
+                # Skip here; will be handled separately
+                continue
             else:
-                data = extract_values(TABLE_MAPPINGS[table], bookings)
-            # Filter out rows with missing primary key.
-            if table == "Locations":
+                mapping = TABLE_MAPPINGS.get(table, {})
+                data = extract_values(mapping, flat_bookings)
+            # Use the first column in the mapping as primary key (for filtering)
+            if table == "Location":
                 primary_key = "location_id"
-            elif table == "Refs":
-                primary_key = "ref_id"
-            else:
+            elif table in TABLE_MAPPINGS and TABLE_MAPPINGS[table]:
                 primary_key = list(TABLE_MAPPINGS[table].keys())[0]
-            filtered_data = [row for row in data if row.get(primary_key) is not None]
+            else:
+                primary_key = "id"
+            filtered_data = [row for row in data if row.get(primary_key) not in (None, "")]
             logging.info(f"Table {table}: {len(filtered_data)} rows ready for insertion (after filtering).")
             bulk_insert(cursor, table, filtered_data)
         except Exception as e:
             logging.error(f"Error processing table {table}: {e}")
+    # Insert extra details separately
+    insert_extra_details(cursor, flat_bookings)
     conn.commit()
     cursor.close()
     conn.close()
     logging.info("Database operations completed.")
 
-if __name__ == "__main__":
+async def main():
+    logging.info("Starting enhanced process...")
+    access_token = authenticate(AUTH_URL, SUBJECT, SECRET)
+    flat_bookings = await process_bookings_async(access_token)
+    logging.info(f"Flattened and enriched {len(flat_bookings)} booking records.")
     try:
-        logging.info("Starting process...")
-        # access_token = authenticate(AUTH_URL, SUBJECT, SECRET)
-        # all_data = process_bookings(access_token)
-        # save_json_to_file(all_data, OUTPUT_FILE)
-        process_and_insert_data(OUTPUT_FILE)
-        logging.info("Process completed successfully.")
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+            json.dump(flat_bookings, f, indent=4)
+        logging.info(f"Flat JSON data saved to {OUTPUT_FILE}")
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error(f"Error saving flat JSON: {e}")
+    process_and_insert_data(flat_bookings)
+    logging.info("Enhanced process completed successfully.")
+
+if __name__ == "__main__":
+    asyncio.run(main())
