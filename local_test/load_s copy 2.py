@@ -165,7 +165,7 @@ def fetch_booking_data_paged(access_token):
     headers = {"Authorization": f"Bearer {access_token}"}
     all_bookings = []
     next_url = DATA_API_URL
-    payload = {"expectedStartDateGTE": START_DATE, "expectedStartDateLT": END_DATE,"pageSize":"50", "Filter": {"lastModifiedDate":"2025-03-06 19:32:01.000"}}
+    payload = {"expectedStartDateGTE": START_DATE, "expectedStartDateLT": END_DATE, "Filter": {"lastModifiedDate":"2025-03-06 19:32:01.000"}}
     while next_url:
         logging.info(f"Fetching page: {next_url}")
         response = requests.get(next_url, headers=headers, json=payload)
@@ -1060,10 +1060,10 @@ async def main():
     logging.info("Enhanced process completed successfully.")
     
 async def run_main_loop():
-    date_1 = datetime.strptime("2025-01-29T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ")
+    date_1 = datetime.strptime("2024-01-29T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ")
     current_time = datetime.now()
     while date_1 < current_time:
-        next_date = date_1 + timedelta(days=30)  # Approximate 6 months as 6*30 days
+        next_date = date_1 + timedelta(days=6*30)  # Approximate 6 months as 6*30 days
         if next_date > current_time:
             next_date = current_time
         global START_DATE, END_DATE
