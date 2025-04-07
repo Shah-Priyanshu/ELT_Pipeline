@@ -1242,8 +1242,8 @@ async def run_main_loop():
 
 
 # Updated connection info for local testing
-SERVER = 'Pri-Yoga'
-DATABASE = 'MCIS_BOOKING_TEST'
+SERVER = os.getenv("SERVER")
+DATABASE = os.getenv("DATABASE")
 DRIVER = '{ODBC Driver 17 for SQL Server}'
 AUTH_URL = os.getenv("AUTH_URL")
 DATA_API_URL = os.getenv("DATA_API_URL")
