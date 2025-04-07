@@ -1,3 +1,17 @@
+"""
+MCIS ELT Pipeline - Booking Data Extraction Module
+
+This module implements the Extract-Load-Transform (ELT) pipeline for booking data.
+It handles the extraction of booking data from the API, enrichment with related data,
+and loading into a SQL Server database.
+
+Main components:
+- API authentication and data fetching
+- Data flattening and transformation
+- Database operations (upsert)
+- Asynchronous processing
+"""
+
 import os
 import json
 import logging
@@ -10,9 +24,10 @@ import time
 from dotenv import load_dotenv
 from typing import Dict, Any, List, Optional
 
-# Load environment variables
+# Load environment variables from .env file
 load_dotenv()
-# Configure logging
+
+# Configure logging with both file and console output
 LOG_FILE = "api_process.log"
 
 logging.basicConfig(
@@ -25,6 +40,15 @@ logging.basicConfig(
 )
 
 def get_db_connection():
+    """
+    Establishes a connection to the SQL Server database using Windows authentication.
+    
+    Returns:
+        pyodbc.Connection: Database connection object if successful, None otherwise
+    
+    Raises:
+        Exception: If connection fails
+    """
     try:
         conn = pyodbc.connect(
             f'DRIVER={DRIVER};SERVER={SERVER};DATABASE={DATABASE};Trusted_Connection=yes;TrustServerCertificate=yes;'
@@ -39,9 +63,18 @@ def get_db_connection():
 # Helper functions for data extraction and flattening
 # ---------------------------------
 
-def get_nested_value(data, key_path, sep='.'):
-    """Traverse the dictionary using the dot-separated key_path.
-    Returns None if any key in the path is missing."""
+def get_nested_value(data: Dict[str, Any], key_path: str, sep: str = '.') -> Any:
+    """
+    Safely traverses a nested dictionary using a dot-separated key path.
+    
+    Args:
+        data: The nested dictionary to traverse
+        key_path: Dot-separated string indicating the path to the desired value
+        sep: Separator character used in the key_path (default: '.')
+    
+    Returns:
+        The value at the specified path, or None if the path doesn't exist
+    """
     keys = key_path.split(sep)
     for k in keys:
         if isinstance(data, dict) and k in data:
@@ -50,10 +83,18 @@ def get_nested_value(data, key_path, sep='.'):
             return None
     return data
 
-def flatten_dict(d, parent_key='', sep='.'):
+def flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
     """
-    Recursively flattens a nested dictionary.
-    All nested keys are concatenated using the separator without any extra prefix.
+    Recursively flattens a nested dictionary into a single-level dictionary.
+    Nested keys are concatenated using the separator.
+    
+    Args:
+        d: The nested dictionary to flatten
+        parent_key: The parent key for nested dictionaries (used in recursion)
+        sep: Separator character for concatenated keys
+    
+    Returns:
+        Dict with flattened structure where all nested keys are concatenated
     """
     items = {}
     for key, value in d.items():
@@ -70,7 +111,17 @@ def flatten_dict(d, parent_key='', sep='.'):
             items[new_key] = value
     return items
 
-def extract_values(mapping, records):
+def extract_values(mapping: Dict[str, str], records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Extracts values from records based on a column mapping configuration.
+    
+    Args:
+        mapping: Dictionary mapping column names to key paths in the record
+        records: List of record dictionaries to extract values from
+    
+    Returns:
+        List of dictionaries with extracted values according to the mapping
+    """
     extracted = []
     for record in records:
         row = {}
@@ -84,7 +135,17 @@ def extract_values(mapping, records):
     logging.info(f"Extracted {len(extracted)} rows using mapping.")
     return extracted
 
-def extract_locations(records):
+def extract_locations(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Extracts and normalizes location data from booking records.
+    Handles multiple location types (actual, billing, default) and deduplicates.
+    
+    Args:
+        records: List of booking records containing location data
+    
+    Returns:
+        List of unique, normalized location dictionaries
+    """
     loc_dict = {}
     for record in records:
         for prefix in ["actualLocation", "billingLocation", "location"]:
@@ -108,10 +169,16 @@ def extract_locations(records):
     logging.info(f"Extracted {len(locs)} unique location records.")
     return locs
 
-def flatten_inner_api_data(inner_data):
+def flatten_inner_api_data(inner_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Flattens inner API response data without adding any extra identifier.
-    Each inner API result (if a dict) is flattened on its own and merged into one dictionary.
+    Flattens nested API response data without adding identifier prefixes.
+    Merges all nested dictionaries into a single-level dictionary.
+    
+    Args:
+        inner_data: Nested dictionary from API response
+    
+    Returns:
+        Flattened dictionary with merged key-value pairs
     """
     flat_data = {}
     for key, value in inner_data.items():
@@ -134,7 +201,22 @@ def flatten_inner_api_data(inner_data):
 # ---------------------------------
 # API and Data Fetching Functions
 # ---------------------------------
-def authenticate(auth_url, subject, secret):
+
+def authenticate(auth_url: str, subject: str, secret: str) -> str:
+    """
+    Authenticates with the API using provided credentials.
+    
+    Args:
+        auth_url: Authentication endpoint URL
+        subject: API subject identifier
+        secret: API secret key
+    
+    Returns:
+        str: Access token for API requests
+    
+    Raises:
+        requests.RequestException: If authentication fails
+    """
     logging.info("Authenticating...")
     auth_payload = {"subject": subject, "secret": secret}
     try:
@@ -147,7 +229,19 @@ def authenticate(auth_url, subject, secret):
         logging.error(f"Authentication failed: {e}")
         raise
 
-async def fetch_data_async(session, url, headers, payload=None):
+async def fetch_data_async(session: aiohttp.ClientSession, url: str, headers: Dict[str, str], payload: Optional[Dict] = None) -> Dict:
+    """
+    Asynchronously fetches data from an API endpoint.
+    
+    Args:
+        session: aiohttp client session
+        url: API endpoint URL
+        headers: Request headers including authentication
+        payload: Optional request payload for POST requests
+    
+    Returns:
+        Dict containing the API response data
+    """
     try:
         if payload:
             async with session.post(url, json=payload, headers=headers) as resp:
@@ -161,11 +255,39 @@ async def fetch_data_async(session, url, headers, payload=None):
         logging.error(f"Async error fetching {url}: {e}")
         return None
 
-def fetch_booking_data_paged(access_token):
+def fetch_booking_data_paged(access_token: str) -> List[Dict[str, Any]]:
+    """
+    Fetches booking data from the API using pagination.
+    
+    Args:
+        access_token: Valid API access token
+    
+    Returns:
+        List of booking records from all pages
+    
+    Note:
+        Uses global variables DATA_API_URL, START_DATE, END_DATE, and FILTER_DATE
+    """
     headers = {"Authorization": f"Bearer {access_token}"}
     all_bookings = []
     next_url = DATA_API_URL
-    payload = {"expectedStartDateGTE": START_DATE, "expectedStartDateLT": END_DATE,"pageSize":"50", "Filter": {"lastModifiedDate":"2025-03-06 19:32:01.000"}}
+    payload = {
+        "expectedStartDateGTE": START_DATE,
+        "expectedStartDateLT": END_DATE,
+        "pageSize": "50",
+        "Filter": {
+            "groupOp": "AND",
+            "rules": [
+                {
+                    "op": "ged",
+                    "field": "lastModifiedDate",
+                    "data": "{FILTER_DATE}",
+                    "type": "date"
+                }
+            ]
+        }
+    }
+    
     while next_url:
         logging.info(f"Fetching page: {next_url}")
         response = requests.get(next_url, headers=headers, json=payload)
@@ -179,11 +301,25 @@ def fetch_booking_data_paged(access_token):
     logging.info(f"Fetched total {len(all_bookings)} booking items with pagination.")
     return all_bookings
 
-def find_all_uris(data):
-    """Recursively find all URIs in the data.
-    Returns a dict with composite key paths as keys and URLs as values."""
+def find_all_uris(data: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Recursively finds all URIs in the nested data structure.
+    
+    Args:
+        data: Nested dictionary to search for URIs
+    
+    Returns:
+        Dictionary mapping composite key paths to their corresponding URIs
+    """
     uris = {}
-    def recurse(current, path=""):
+    def recurse(current: Any, path: str = "") -> None:
+        """
+        Helper function for recursive URI search.
+        
+        Args:
+            current: Current data structure being searched
+            path: Current path in the data structure
+        """
         if isinstance(current, dict):
             if "uri" in current and isinstance(current["uri"], str) and current["uri"].startswith("http"):
                 composite_key = path.rstrip(".")
@@ -198,9 +334,17 @@ def find_all_uris(data):
     recurse(data)
     return uris
 
-async def enrich_record(record, headers):
-    """Fetch inner API details, flatten the result without any extra prefixes,
-    and return the flat dictionary."""
+async def enrich_record(record: Dict[str, Any], headers: Dict[str, str]) -> Dict[str, Any]:
+    """
+    Enriches a booking record by fetching additional data from related URIs.
+    
+    Args:
+        record: The booking record to enrich
+        headers: Request headers including authentication
+    
+    Returns:
+        Dictionary containing flattened data from all related API endpoints
+    """
     uri_dict = {}
     # Check top-level keys for direct URIs
     for key, value in record.items():
@@ -208,6 +352,7 @@ async def enrich_record(record, headers):
             uri_dict[key] = value
         elif isinstance(value, dict) and "uri" in value and isinstance(value["uri"], str) and value["uri"].startswith("http"):
             uri_dict[key] = value["uri"]
+    
     # Also use recursive search to find any nested URIs
     recursive_uris = find_all_uris(record)
     uri_dict.update(recursive_uris)
@@ -225,8 +370,8 @@ async def enrich_record(record, headers):
                 logging.error(f"Error fetching {key}: {res}")
             else:
                 extra[key] = res
-    # Instead of flattening with the composite keys,
-    # flatten each inner API result individually (no prefix) and merge
+    
+    # Flatten each inner API result individually and merge
     flat_extra = {}
     for key, data in extra.items():
         if isinstance(data, dict):
@@ -237,7 +382,17 @@ async def enrich_record(record, headers):
     logging.debug(f"Flattened extra data keys: {list(flat_extra.keys())} for booking id {record.get('id', 'unknown')}")
     return flat_extra
 
-async def process_bookings_async(access_token):
+async def process_bookings_async(access_token: str) -> List[Dict[str, Any]]:
+    """
+    Main processing function for booking data.
+    Fetches, enriches, and processes all booking records.
+    
+    Args:
+        access_token: Valid API access token
+    
+    Returns:
+        List of processed and enriched booking records
+    """
     logging.info("Fetching booking data with pagination...")
     bookings = fetch_booking_data_paged(access_token)
     logging.info(f"Fetched {len(bookings)} booking items.")
@@ -835,11 +990,12 @@ def get_json_value(record: Dict[str, Any], json_path: str) -> Any:
 
 def upsert_entity(record: Dict[str, Any], mapping: Dict[str, Any], cursor) -> None:
     """
-    Upserts a single row for the given entity mapping.
-    1) Build a list of (db_column, value) from the JSON,
-    2) Identify a PK column (simple heuristic),
-    3) If PK value already exists -> UPDATE, else -> INSERT.
-    Uses logging to show progress.
+    Performs an upsert operation for a single entity in the database.
+    
+    Args:
+        record: The record to upsert
+        mapping: Dictionary defining the table and column mappings
+        cursor: Database cursor for executing SQL
     """
     table_name = mapping["table_name"]
     columns_map = mapping["columns"]
@@ -905,8 +1061,13 @@ def upsert_entity(record: Dict[str, Any], mapping: Dict[str, Any], cursor) -> No
 
 def upsert_array_entities(record: Dict[str, Any], mapping: Dict[str, Any], cursor, max_items: int = 50) -> None:
     """
-    For array-based data (e.g. refs.{i}.id or requirements.{i}.id).
-    We'll attempt i in range(max_items), break when no PK is found.
+    Handles upserting array-type entities into the database.
+    
+    Args:
+        record: The record containing the array data
+        mapping: Dictionary defining the table and array mappings
+        cursor: Database cursor for executing SQL
+        max_items: Maximum number of array items to process
     """
     table_name = mapping["table_name"]
     columns_map = mapping["columns"]
@@ -1015,8 +1176,10 @@ def process_flattened_record(record: Dict[str, Any], cursor) -> None:
 
 def insert_bookings_into_db(bookings: List[Dict[str, Any]]) -> None:
     """
-    Connects to the DB, processes each flattened booking record, and
-    commits or rolls back on errors.
+    Main database insertion function for booking records.
+    
+    Args:
+        bookings: List of processed booking records to insert
     """
     conn = get_db_connection()
     if not conn:
@@ -1060,10 +1223,14 @@ async def main():
     logging.info("Enhanced process completed successfully.")
     
 async def run_main_loop():
-    date_1 = datetime.strptime("2025-01-29T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ")
+    """
+    Runs the main pipeline in a loop for different date ranges.
+    Processes data in 6-month chunks from 2019 to present.
+    """
+    date_1 = datetime.strptime("2019-01-01T00:00:00Z", "%Y-%m-%dT%H:%M:%SZ")
     current_time = datetime.now()
     while date_1 < current_time:
-        next_date = date_1 + timedelta(days=30)  # Approximate 6 months as 6*30 days
+        next_date = date_1 + timedelta(days=6*30)  # Approximate 6 months as 6*30 days
         if next_date > current_time:
             next_date = current_time
         global START_DATE, END_DATE
@@ -1082,9 +1249,8 @@ AUTH_URL = os.getenv("AUTH_URL")
 DATA_API_URL = os.getenv("DATA_API_URL")
 SUBJECT = os.getenv("SUBJECT")
 SECRET = os.getenv("SECRET")
-OUTPUT_FILE = "booking_data_all.json"
+OUTPUT_FILE = "booking_data_{FILTER_DATE}.json"
+FILTER_DATE = datetime.now().strftime("%Y-%m-%d")
 
 if __name__ == "__main__":
     asyncio.run(run_main_loop())
-# if __name__ == "__main__":
-#     asyncio.run(main())
