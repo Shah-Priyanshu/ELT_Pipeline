@@ -38,13 +38,13 @@ AUTH_URL=your_auth_url
 DATA_API_URL=your_data_api_url
 SUBJECT=your_subject
 SECRET=your_secret
+DB_DRIVER = '{ODBC Driver 17 for SQL Server}'
+SERVER =your_DB_server
+DATABASE =your_DB
 ```
 
 ## Configuration
 The main configuration parameters are defined at the bottom of the script:
-- `SERVER`: SQL Server instance name
-- `DATABASE`: Target database name
-- `DRIVER`: ODBC Driver specification
 - `OUTPUT_FILE`: JSON output file pattern
 - Date ranges for data fetching are handled in the `run_main_loop` function
 
@@ -60,7 +60,7 @@ The pipeline supports the following main entities:
 - BookingRequirements
 
 Each entity has its own mapping defined in the `TABLE_MAPPING` dictionary.
-DB design visual display: [text](https://dbdiagram.io/d/Booking-DB-v4-67f6a5094f7afba184fb9262)
+DB design visual display: https://dbdiagram.io/d/Booking-DB-v4-67f6a5094f7afba184fb9262
 
 ## Key Components
 
@@ -126,8 +126,37 @@ Modify the `run_main_loop()` function to adjust:
 - Chunk size (currently 6 months)
 - End date handling
 
-## Troubleshooting
+## STEP-BY-STEP TO SCHEDULE PYTHON SCRIPT
+### 1. Open Task Scheduler (Start > Task Scheduler)
+### 2. Create a new task (not a basic task):
+   - General tab:
+      - Name: MCIS ELT Pipeline
+      - Run whether user is logged on or not
+      - Run with highest privileges
 
+### 3. Triggers tab:
+   - New > Set to daily or on your preferred schedule (e.g., 1 AM)
+
+### 4. Actions tab:
+   - New > Action: Start a program
+      - Program/script: Full path to python.exe
+      Example: C:\Users\YourUsername\AppData\Local\Programs\Python\Python310\python.exe
+      - Add arguments: Full path to your script
+      Example: C:\path\to\MCIS_ELT_Pipeline\data_extraction_booking.py
+      - Start in: Directory of your script
+      Example: C:\path\to\MCIS_ELT_Pipeline
+
+### 5. Settings tab:
+   - Allow task to be run on demand
+   - If the task fails, restart every 1 minute, up to 3 times (optional)
+
+### 6. Click OK, enter admin credentials if prompted.
+
+### 7. To test:
+   - Right-click the task → Run
+   - Check output/logs or Task Scheduler history for success/failure
+
+    ## Troubleshooting
 ### Common Issues
 1. Database Connection Failures
    - Verify SQL Server credentials
@@ -149,35 +178,3 @@ Modify the `run_main_loop()` function to adjust:
 2. Archive JSON output files
 3. Verify database indexes
 4. Check API rate limits
-
-## STEP-BY-STEP TO SCHEDULE PYTHON SCRIPT
-### 1. Open Task Scheduler (Start > Task Scheduler)
-### 2. Create a new task (not a basic task):
-    - General tab:
-        - Name: MCIS ELT Pipeline
-        - Run whether user is logged on or not
-        - Run with highest privileges
-
-### 3. Triggers tab:
-    - New > Set to daily or on your preferred schedule (e.g., 1 AM)
-
-### 4. Actions tab:
-    - New > Action: Start a program
-      - Program/script: Full path to python.exe
-        Example: C:\Users\YourUsername\AppData\Local\Programs\Python\Python310\python.exe
-
-      - Add arguments: Full path to your script
-        Example: C:\path\to\MCIS_ELT_Pipeline\data_extraction_booking.py
-
-      - Start in: Directory of your script
-        Example: C:\path\to\MCIS_ELT_Pipeline
-
-### 5. Settings tab:
-    - Allow task to be run on demand
-    - If the task fails, restart every 1 minute, up to 3 times (optional)
-
-### 6. Click OK, enter admin credentials if prompted.
-
-### 7. To test:
-    - Right-click the task → Run
-    - Check output/logs or Task Scheduler history for success/failure
